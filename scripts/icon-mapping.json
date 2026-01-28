@@ -1,0 +1,129 @@
+{
+  "iconMapping": {
+    "功能图标": {
+      "setting": {
+        "pixsoName": "icon/setting",
+        "localPath": "assets/icons/icon/setting.png",
+        "usage": "settings"
+      },
+      "history": {
+        "pixsoName": "icon/history",
+        "localPath": "assets/icons/icon/history.png",
+        "usage": "history"
+      },
+      "delete": {
+        "pixsoName": "icon/delete",
+        "localPath": "assets/icons/icon/delete.png",
+        "usage": "delete"
+      },
+      "plus": {
+        "pixsoName": "icon/plus",
+        "localPath": "assets/icons/icon/plus.png",
+        "usage": "zoomIn"
+      },
+      "minus": {
+        "pixsoName": "icon/minus",
+        "localPath": "assets/icons/icon/minus.png",
+        "usage": "zoomOut"
+      },
+      "location": {
+        "pixsoName": "icon/location",
+        "localPath": "assets/icons/icon/location.png",
+        "usage": "location, layers"
+      },
+      "save-image": {
+        "pixsoName": "icon/save-image",
+        "localPath": "assets/icons/icon/save-image.png",
+        "usage": "saveImage"
+      },
+      "save-board": {
+        "pixsoName": "icon/save-board",
+        "localPath": "assets/icons/icon/save-board.png",
+        "usage": "newPlan, saveDraft"
+      },
+      "close": {
+        "pixsoName": "icon/close",
+        "localPath": "assets/icons/icon/close.png",
+        "usage": "closeWhite"
+      },
+      "share": {
+        "pixsoName": "icon/share",
+        "localPath": "assets/icons/icon/share.png",
+        "usage": "shareWhite"
+      },
+      "left": {
+        "pixsoName": "icon/left",
+        "localPath": "assets/icons/icon/left.png",
+        "usage": "left"
+      }
+    },
+    "分类图标": {
+      "livingroom": {
+        "pixsoName": "icon/livingroom",
+        "localPath": "assets/icons/nav/livingroom-default.png",
+        "selectPath": "assets/icons/nav/livingroom-select.png",
+        "usage": "living, livingSelect"
+      },
+      "kitchen": {
+        "pixsoName": "icon/kitchen",
+        "localPath": "assets/icons/nav/kitchen-default.png",
+        "selectPath": "assets/icons/nav/kitchen-select.png",
+        "usage": "kitchen, kitchenSelect"
+      },
+      "bedroom": {
+        "pixsoName": "icon/bedroom",
+        "localPath": "assets/icons/nav/bedroom-default.png",
+        "selectPath": "assets/icons/nav/bedroom-select.png",
+        "usage": "bedroom, bedroomSelect"
+      },
+      "bathroom": {
+        "pixsoName": "icon/bathroom",
+        "localPath": "assets/icons/nav/bathroom-default.png",
+        "selectPath": "assets/icons/nav/bathroom-select.png",
+        "usage": "bath, bathSelect"
+      },
+      "diningroom": {
+        "pixsoName": "icon/diningroom",
+        "localPath": "assets/icons/nav/diningroom-default.png",
+        "selectPath": "assets/icons/nav/diningroom-select.png",
+        "usage": "dining, diningSelect"
+      },
+      "office": {
+        "pixsoName": "icon/office",
+        "localPath": "assets/icons/nav/office-default.png",
+        "selectPath": "assets/icons/nav/office-select.png",
+        "usage": "office, officeSelect"
+      },
+      "children'sroom": {
+        "pixsoName": "icon/children'sroom",
+        "localPath": "assets/icons/nav/childrensroom-default.png",
+        "selectPath": "assets/icons/nav/childrensroom-select.png",
+        "usage": "kids, kidsSelect"
+      },
+      "StudyRoom": {
+        "pixsoName": "icon/StudyRoom",
+        "localPath": "assets/icons/nav/studyroom-default.png",
+        "selectPath": "assets/icons/nav/studyroom-select.png",
+        "usage": "study, studySelect"
+      },
+      "balcony": {
+        "pixsoName": "icon/balcony",
+        "localPath": "assets/icons/nav/balcony-default.png",
+        "selectPath": "assets/icons/nav/balcony-select.png",
+        "usage": "balcony, balconySelect"
+      },
+      "gate": {
+        "pixsoName": "icon/gate",
+        "localPath": "assets/icons/nav/gate-default.png",
+        "selectPath": "assets/icons/nav/gate-select.png",
+        "usage": "entrance, entranceSelect"
+      },
+      "corridor": {
+        "pixsoName": "icon/corridor",
+        "localPath": "assets/icons/nav/corridor-default.png",
+        "selectPath": "assets/icons/nav/corridor-select.png",
+        "usage": "corridor, corridorSelect"
+      }
+    }
+  }
+}
