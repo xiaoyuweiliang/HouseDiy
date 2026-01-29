@@ -66,10 +66,6 @@ export default function RootLayout() {
           name="save-preview"
           options={{ headerShown: false }}
         />
-        <Stack.Screen
-          name="test-svg"
-          options={{ headerShown: false }}
-        />
       </Stack>
     </GestureHandlerRootView>
   );

@@ -48,3 +48,29 @@ export interface SavedDesign {
   image: string;
   data?: PlacedRoom[]; // The actual layout data
 }
+
+// 基础几何类型
+export interface Point {
+  x: number;
+  y: number;
+}
+
+// 画布 / 吸附相关常量
+export const GRID_SIZE = 20;        // 网格间距（像素）
+export const SNAP_THRESHOLD = 15;   // 吸附判定阈值（像素）
+
+// 吸附与对齐类型（主要用于拖拽算法）
+export interface SnapTarget {
+  position: Point;
+  distance: number;
+  type: 'grid' | 'edge' | 'alignment';
+  targetRoomId?: string;
+  edge?: Direction;
+}
+
+export interface EdgeAlignment {
+  sourceEdge: Direction;
+  targetEdge: Direction;
+  alignedPosition: Point;
+  distance: number;
+}
