@@ -13,15 +13,23 @@ import {
   SNAP_THRESHOLD,
 } from '@/types';
 
+function safeNum(v: number, fallback: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) && !Number.isNaN(n) ? n : fallback;
+}
+
 /**
  * 将点吸附到最近的网格
  */
 export function snapToGrid(point: Point, gridSize: number = GRID_SIZE): Point {
+  const g = Number.isFinite(Number(gridSize)) && gridSize > 0 ? gridSize : GRID_SIZE;
+  const px = safeNum(point.x, 0);
+  const py = safeNum(point.y, 0);
   const snapped = {
-    x: Math.round(point.x / gridSize) * gridSize,
-    y: Math.round(point.y / gridSize) * gridSize,
+    x: Math.round(px / g) * g,
+    y: Math.round(py / g) * g,
   };
-  console.warn('[snappingUtils] snapToGrid:', { from: point, to: snapped, gridSize });
+  console.warn('[snappingUtils] snapToGrid:', { from: point, to: snapped, gridSize: g });
   return snapped;
 }
 
@@ -29,9 +37,10 @@ export function snapToGrid(point: Point, gridSize: number = GRID_SIZE): Point {
  * 计算房间模块的网格吸附位置（以左上角为基准）
  */
 export function calculateGridSnap(position: Point, module: RoomModule): Point {
-  const snapped = snapToGrid(position);
+  const safePosition = { x: safeNum(position.x, 0), y: safeNum(position.y, 0) };
+  const snapped = snapToGrid(safePosition);
   console.warn('[snappingUtils] calculateGridSnap:', {
-    position,
+    position: safePosition,
     moduleId: module.id,
     result: snapped,
   });
@@ -43,16 +52,18 @@ export function calculateGridSnap(position: Point, module: RoomModule): Point {
  */
 export function getRoomBounds(room: PlacedRoom, module: RoomModule) {
   // 当前只支持 0° 旋转，如果以后支持旋转，可以在这里统一扩展
-  const width = module.width;
-  const height = module.height;
+  const rx = safeNum(room.x, 0);
+  const ry = safeNum(room.y, 0);
+  const width = safeNum(module.width, 0);
+  const height = safeNum(module.height, 0);
 
   return {
-    left: room.x,
-    right: room.x + width,
-    top: room.y,
-    bottom: room.y + height,
-    centerX: room.x + width / 2,
-    centerY: room.y + height / 2,
+    left: rx,
+    right: rx + width,
+    top: ry,
+    bottom: ry + height,
+    centerX: rx + width / 2,
+    centerY: ry + height / 2,
   };
 }
 
@@ -72,9 +83,12 @@ export function findEdgeAlignments(
   placedRooms: PlacedRoom[],
   modules: RoomModule[],
 ): EdgeAlignment[] {
+  const px = safeNum(position.x, 0);
+  const py = safeNum(position.y, 0);
+  const safePosition = { x: px, y: py };
   const alignments: EdgeAlignment[] = [];
-  const newWidth = newModule.width;
-  const newHeight = newModule.height;
+  const newWidth = safeNum(newModule.width, 0);
+  const newHeight = safeNum(newModule.height, 0);
 
   for (const room of placedRooms) {
     const existingModule = modules.find((m) => m.id === room.moduleId);
@@ -85,9 +99,9 @@ export function findEdgeAlignments(
     // 1. 新模块 LEFT 对齐已有 RIGHT
     const leftToRight: Point = {
       x: existingBounds.right,
-      y: position.y,
+      y: py,
     };
-    const leftToRightDist = Math.abs(position.x - leftToRight.x);
+    const leftToRightDist = Math.abs(px - leftToRight.x);
     if (leftToRightDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'left',
@@ -100,9 +114,9 @@ export function findEdgeAlignments(
     // 2. 新模块 RIGHT 对齐已有 LEFT
     const rightToLeft: Point = {
       x: existingBounds.left - newWidth,
-      y: position.y,
+      y: py,
     };
-    const rightToLeftDist = Math.abs(position.x - rightToLeft.x);
+    const rightToLeftDist = Math.abs(px - rightToLeft.x);
     if (rightToLeftDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'right',
@@ -114,10 +128,10 @@ export function findEdgeAlignments(
 
     // 3. 新模块 TOP 对齐已有 BOTTOM
     const topToBottom: Point = {
-      x: position.x,
+      x: px,
       y: existingBounds.bottom,
     };
-    const topToBottomDist = Math.abs(position.y - topToBottom.y);
+    const topToBottomDist = Math.abs(py - topToBottom.y);
     if (topToBottomDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'top',
@@ -129,10 +143,10 @@ export function findEdgeAlignments(
 
     // 4. 新模块 BOTTOM 对齐已有 TOP
     const bottomToTop: Point = {
-      x: position.x,
+      x: px,
       y: existingBounds.top - newHeight,
     };
-    const bottomToTopDist = Math.abs(position.y - bottomToTop.y);
+    const bottomToTopDist = Math.abs(py - bottomToTop.y);
     if (bottomToTopDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'bottom',
@@ -147,9 +161,9 @@ export function findEdgeAlignments(
     // 5. LEFT 对 LEFT
     const leftToLeft: Point = {
       x: existingBounds.left,
-      y: position.y,
+      y: py,
     };
-    const leftToLeftDist = Math.abs(position.x - leftToLeft.x);
+    const leftToLeftDist = Math.abs(px - leftToLeft.x);
     if (leftToLeftDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'left',
@@ -162,9 +176,9 @@ export function findEdgeAlignments(
     // 6. RIGHT 对 RIGHT
     const rightToRight: Point = {
       x: existingBounds.right - newWidth,
-      y: position.y,
+      y: py,
     };
-    const rightToRightDist = Math.abs(position.x - rightToRight.x);
+    const rightToRightDist = Math.abs(px - rightToRight.x);
     if (rightToRightDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'right',
@@ -176,10 +190,10 @@ export function findEdgeAlignments(
 
     // 7. TOP 对 TOP
     const topToTop: Point = {
-      x: position.x,
+      x: px,
       y: existingBounds.top,
     };
-    const topToTopDist = Math.abs(position.y - topToTop.y);
+    const topToTopDist = Math.abs(py - topToTop.y);
     if (topToTopDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'top',
@@ -191,10 +205,10 @@ export function findEdgeAlignments(
 
     // 8. BOTTOM 对 BOTTOM
     const bottomToBottom: Point = {
-      x: position.x,
+      x: px,
       y: existingBounds.bottom - newHeight,
     };
-    const bottomToBottomDist = Math.abs(position.y - bottomToBottom.y);
+    const bottomToBottomDist = Math.abs(py - bottomToBottom.y);
     if (bottomToBottomDist <= SNAP_THRESHOLD) {
       alignments.push({
         sourceEdge: 'bottom',
@@ -206,7 +220,7 @@ export function findEdgeAlignments(
   }
 
   console.warn('[snappingUtils] findEdgeAlignments:', {
-    position,
+    position: { x: px, y: py },
     newModuleId: newModule.id,
     placements: placedRooms.length,
     alignments: alignments.length,
@@ -224,11 +238,12 @@ export function calculateMagneticSnap(
   placedRooms: PlacedRoom[],
   modules: RoomModule[],
 ): Point | null {
-  const alignments = findEdgeAlignments(position, module, placedRooms, modules);
+  const safePosition = { x: safeNum(position.x, 0), y: safeNum(position.y, 0) };
+  const alignments = findEdgeAlignments(safePosition, module, placedRooms, modules);
 
   if (alignments.length === 0) {
     console.warn('[snappingUtils] calculateMagneticSnap: no alignment', {
-      position,
+      position: safePosition,
       moduleId: module.id,
       placed: placedRooms.length,
     });
@@ -238,7 +253,7 @@ export function calculateMagneticSnap(
   alignments.sort((a, b) => a.distance - b.distance);
   const picked = alignments[0];
   console.warn('[snappingUtils] calculateMagneticSnap: picked', {
-    position,
+    position: safePosition,
     moduleId: module.id,
     target: picked.alignedPosition,
     distance: picked.distance,
@@ -283,11 +298,15 @@ export function checkOverlap(
   modules: RoomModule[],
   excludeRoomId?: string,
 ): boolean {
+  const px = safeNum(position.x, 0);
+  const py = safeNum(position.y, 0);
+  const mw = safeNum(module.width, 0);
+  const mh = safeNum(module.height, 0);
   const newBounds = {
-    left: position.x,
-    right: position.x + module.width,
-    top: position.y,
-    bottom: position.y + module.height,
+    left: px,
+    right: px + mw,
+    top: py,
+    bottom: py + mh,
   };
 
   for (const room of placedRooms) {

@@ -185,14 +185,22 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
         const module = moduleMap.get(room.moduleId);
         if (!module) return null;
 
+        const rx = Number(room.x);
+        const ry = Number(room.y);
+        const mw = Number(module.width);
+        const mh = Number(module.height);
+        if (!Number.isFinite(rx) || !Number.isFinite(ry) || !Number.isFinite(mw) || !Number.isFinite(mh) || mw <= 0 || mh <= 0) {
+          return null;
+        }
+
         const isSelected = selectedRoomId === room.instanceId;
 
         return (
-          <G key={room.instanceId} transform={`translate(${room.x}, ${room.y})`}>
+          <G key={room.instanceId} transform={`translate(${rx}, ${ry})`}>
             <SvgImage
               href={module.image}
-              width={module.width}
-              height={module.height}
+              width={mw}
+              height={mh}
               preserveAspectRatio="xMidYMid slice"
             />
             {/* 选中边框 */}
@@ -200,8 +208,8 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
               <Rect
                 x={-2}
                 y={-2}
-                width={module.width + 4}
-                height={module.height + 4}
+                width={mw + 4}
+                height={mh + 4}
                 fill="none"
                 stroke="#007AFF"
                 strokeWidth={3}
@@ -224,27 +232,39 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
     const renderedDragGhost = useMemo(() => {
       if (!dragItem || !dragPosition) return null;
 
-      // dragPosition 为屏幕坐标（pageX/pageY）
-      // 需转换为 SVG 世界坐标
+      const lx = Number(canvasLayout.x);
+      const ly = Number(canvasLayout.y);
+      const px = Number(pan.x);
+      const py = Number(pan.y);
+      const s = Number(scale);
+      const dx = Number(dragPosition.x);
+      const dy = Number(dragPosition.y);
+      const ox = Number(dragItem.offsetX);
+      const oy = Number(dragItem.offsetY);
+      const mw = Number(dragItem.module.width);
+      const mh = Number(dragItem.module.height);
 
-      // 1. 屏幕 → 画布容器坐标
-      const canvasX = dragPosition.x - canvasLayout.x;
-      const canvasY = dragPosition.y - canvasLayout.y;
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(s) || s === 0 || !Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(mw) || !Number.isFinite(mh) || mw <= 0 || mh <= 0) {
+        return null;
+      }
 
-      // 2. 画布容器 → 世界坐标（反向应用 pan & scale）
-      const worldX = (canvasX - pan.x) / scale;
-      const worldY = (canvasY - pan.y) / scale;
+      const canvasX = dx - (Number.isFinite(lx) ? lx : 0);
+      const canvasY = dy - (Number.isFinite(ly) ? ly : 0);
+      const worldX = (canvasX - (Number.isFinite(px) ? px : 0)) / s;
+      const worldY = (canvasY - (Number.isFinite(py) ? py : 0)) / s;
+      const finalX = worldX - ox;
+      const finalY = worldY - oy;
 
-      // 3. 减去手指相对模块左上角的偏移
-      const finalX = worldX - dragItem.offsetX;
-      const finalY = worldY - dragItem.offsetY;
+      if (!Number.isFinite(finalX) || !Number.isFinite(finalY)) {
+        return null;
+      }
 
       return (
         <G transform={`translate(${finalX}, ${finalY})`} opacity={0.7}>
           <SvgImage
             href={dragItem.module.image}
-            width={dragItem.module.width}
-            height={dragItem.module.height}
+            width={mw}
+            height={mh}
             preserveAspectRatio="xMidYMid slice"
           />
         </G>
@@ -292,6 +312,7 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             
             // 如果房间已选中，立即开始拖动准备（降低阈值）
             if (isSelected) {
+              console.log('roomTouchOverlays: isSelected', isSelected);
               isDraggingRoom.value = true;
               const screenX = event.absoluteX || event.x + canvasLayout.x;
               const screenY = event.absoluteY || event.y + canvasLayout.y;
@@ -302,6 +323,7 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             'worklet';
             // 如果已经在拖动，更新拖动位置
             if (isDraggingRoom.value) {
+              console.log('roomTouchOverlays: isDraggingRoom', isDraggingRoom.value);
               const screenX = event.absoluteX || event.x + canvasLayout.x;
               const screenY = event.absoluteY || event.y + canvasLayout.y;
               if (onRoomDragMove) {
@@ -394,15 +416,20 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
         // 如果移动距离大（拖动），Pan 手势触发（拖动）
         const roomGesture = Gesture.Exclusive(roomTapGesture, roomPanGesture);
 
+        const styleLeft = Number.isFinite(Number(room.x)) ? Number(room.x) : 0;
+        const styleTop = Number.isFinite(Number(room.y)) ? Number(room.y) : 0;
+        const styleW = Number.isFinite(Number(module.width)) && module.width > 0 ? module.width : 1;
+        const styleH = Number.isFinite(Number(module.height)) && module.height > 0 ? module.height : 1;
+
         return (
           <GestureDetector key={`gesture-${room.instanceId}`} gesture={roomGesture}>
             <Animated.View
               style={{
                 position: 'absolute',
-                left: room.x,
-                top: room.y,
-                width: module.width,
-                height: module.height,
+                left: styleLeft,
+                top: styleTop,
+                width: styleW,
+                height: styleH,
                 backgroundColor: 'transparent',
               }}
               pointerEvents="box-only"
@@ -410,7 +437,7 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
           </GestureDetector>
         );
       });
-    }, [placedRooms, dragItem, moduleMap, onRoomDragStart, onRoomDragMove, onRoomDragEnd, canvasLayout]);
+    }, [placedRooms, dragItem, moduleMap, selectedRoomId, onRoomSelect, onRoomDragStart, onRoomDragMove, onRoomDragEnd, canvasLayout]);
 
     return (
       <View style={styles.container} ref={canvasRef}>

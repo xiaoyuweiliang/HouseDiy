@@ -279,8 +279,36 @@ export default function MainScreen() {
     setDragPosition(null);
   }, [dragItem, canvasLayout, pan, scale, placedRooms]);
 
+  // 从物料栏拖拽时，根 View 的 onTouchMove/onTouchEnd 传入的是事件对象，需要提取坐标后调用 handleDragMove/handleDragEnd
+  const onTouchMoveForLibrary = useCallback(
+    (e: any) => {
+      const { pageX, pageY } = e.nativeEvent ?? {};
+      if (typeof pageX === 'number' && typeof pageY === 'number') {
+        handleDragMove(pageX, pageY);
+      }
+    },
+    [handleDragMove],
+  );
+  const onTouchEndForLibrary = useCallback(
+    (e: any) => {
+      const { pageX, pageY } = e.nativeEvent ?? {};
+      if (typeof pageX === 'number' && typeof pageY === 'number') {
+        handleDragEnd(pageX, pageY);
+      } else {
+        setIsModuleScrollEnabled(true);
+        setDragItem(null);
+        setDragPosition(null);
+      }
+    },
+    [handleDragEnd],
+  );
+
   return (
-    <View style={styles.container} onTouchMove={handleDragMove} onTouchEnd={handleDragEnd}>
+    <View
+      style={styles.container}
+      onTouchMove={onTouchMoveForLibrary}
+      onTouchEnd={onTouchEndForLibrary}
+    >
       {/* 顶部状态栏占位，与其他页面视觉统一 */}
       <View style={styles.statusBar} />
 
