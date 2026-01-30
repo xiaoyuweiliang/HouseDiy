@@ -15,7 +15,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import Canvas, { DragItem } from '@/components/Canvas';
+import Canvas, { DragItem } from '../src/components/Canvas';
 import { PlacedRoom, RoomModule } from '@/types';
 import { ROOM_MODULES } from '@/data/material_library';
 import { saveActiveDraft, loadActiveDraft, saveDesign } from '@/services/storageService';
@@ -67,6 +67,8 @@ export default function MainScreen() {
   const moduleScrollRef = useRef<ScrollView>(null);
   const canvasContainerRef = useRef<View>(null);
   const [canvasLayout, setCanvasLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  // 拖拽会话 ref：onRoomDragStart 与 onRoomDragMove 几乎同时触发，state 未刷新时用 ref 保证首帧就跟手
+  const dragItemRef = useRef<DragItem | null>(null);
 
   // 初次加载时恢复草稿
   useEffect(() => {
@@ -93,6 +95,11 @@ export default function MainScreen() {
     }, 500);
     return () => clearTimeout(timer);
   }, [placedRooms]);
+
+  // 监听选中状态变化
+  useEffect(() => {
+    console.log('[main] selectedRoomId 变化:', selectedRoomId);
+  }, [selectedRoomId]);
 
   // 当前分类下的模块
   const activeModules = useMemo(
@@ -125,6 +132,10 @@ export default function MainScreen() {
     setScale(1);
     setPan({ x: 0, y: 0 });
   };
+
+  const handlePanChange = useCallback((newPan: { x: number; y: number }) => {
+    setPan(newPan);
+  }, []);
 
   const handleNewPlan = async () => {
     try {
@@ -162,11 +173,13 @@ export default function MainScreen() {
 
   // 选中房间
   const handleRoomSelect = useCallback((roomId: string | null) => {
+    console.log('[main] handleRoomSelect 被调用，设置 selectedRoomId:', roomId);
     setSelectedRoomId(roomId);
   }, []);
 
   // 点击画布空白处清除选中
   const handleCanvasPress = useCallback(() => {
+    console.log('[main] handleCanvasPress 被调用，清除选中');
     setSelectedRoomId(null);
   }, []);
 
@@ -176,12 +189,14 @@ export default function MainScreen() {
   const handleStartDragFromLibrary = useCallback((module: RoomModule, event: any) => {
     const { pageX, pageY } = event.nativeEvent;
     setIsModuleScrollEnabled(false);
-    setDragItem({
+    const item: DragItem = {
       type: 'new',
       module,
       offsetX: module.width / 2,
       offsetY: module.height / 2,
-    });
+    };
+    dragItemRef.current = item;
+    setDragItem(item);
     setDragPosition({ x: pageX, y: pageY });
   }, []);
 
@@ -193,47 +208,48 @@ export default function MainScreen() {
       const worldX = (canvasX - pan.x) / scale;
       const worldY = (canvasY - pan.y) / scale;
 
-      setDragItem({
+      const item: DragItem = {
         type: 'existing',
         module,
         instanceId: room.instanceId,
         offsetX: worldX - room.x,
         offsetY: worldY - room.y,
-      });
+      };
+      dragItemRef.current = item;
+      setDragItem(item);
       setDragPosition({ x: touchX, y: touchY });
     },
     [canvasLayout, pan, scale],
   );
 
-  // 拖拽移动中（现在由 Canvas 手势直接调用，传入屏幕坐标）
-  const handleDragMove = useCallback(
-    (touchX: number, touchY: number) => {
-      if (!dragItem) return;
+  // 拖拽移动中（用 ref 判断已开始拖拽，避免 onRoomDragStart 与 onRoomDragMove 几乎同时调用时 state 未刷新导致首帧不跟手）
+  const handleDragMove = useCallback((touchX: number, touchY: number) => {
+    if (dragItemRef.current) {
       setDragPosition({ x: touchX, y: touchY });
-    },
-    [dragItem],
-  );
+    }
+  }, []);
 
   // 拖拽结束，计算最终吸附位置并落下（现在由 Canvas 手势直接调用，传入最终坐标）
   const handleDragEnd = useCallback((pageX: number, pageY: number) => {
-    if (!dragItem) return;
+    const currentDragItem = dragItemRef.current ?? dragItem;
+    if (!currentDragItem) return;
     setIsModuleScrollEnabled(true);
     const canvasX = pageX - canvasLayout.x;
     const canvasY = pageY - canvasLayout.y;
     const worldX = (canvasX - pan.x) / scale;
     const worldY = (canvasY - pan.y) / scale;
 
-    const rawX = worldX - dragItem.offsetX;
-    const rawY = worldY - dragItem.offsetY;
+    const rawX = worldX - currentDragItem.offsetX;
+    const rawY = worldY - currentDragItem.offsetY;
 
     const stationaryRooms =
-      dragItem.type === 'existing'
-        ? placedRooms.filter((r) => r.instanceId !== dragItem.instanceId)
+      currentDragItem.type === 'existing'
+        ? placedRooms.filter((r) => r.instanceId !== currentDragItem.instanceId)
         : placedRooms;
 
     const magneticSnap = calculateMagneticSnap(
       { x: rawX, y: rawY },
-      dragItem.module,
+      currentDragItem.module,
       stationaryRooms,
       ROOM_MODULES,
     );
@@ -245,22 +261,22 @@ export default function MainScreen() {
       finalX = magneticSnap.x;
       finalY = magneticSnap.y;
     } else {
-      const gridSnap = calculateGridSnap({ x: rawX, y: rawY }, dragItem.module);
+      const gridSnap = calculateGridSnap({ x: rawX, y: rawY }, currentDragItem.module);
       finalX = gridSnap.x;
       finalY = gridSnap.y;
     }
 
     const isBase =
-      dragItem.type === 'existing'
-        ? placedRooms.find((r) => r.instanceId === dragItem.instanceId)?.isBase
+      currentDragItem.type === 'existing'
+        ? placedRooms.find((r) => r.instanceId === currentDragItem.instanceId)?.isBase
         : placedRooms.length === 0;
 
     const newRoom: PlacedRoom = {
       instanceId:
-        dragItem.type === 'existing'
-          ? dragItem.instanceId!
+        currentDragItem.type === 'existing'
+          ? currentDragItem.instanceId!
           : Math.random().toString(36).substring(2, 11),
-      moduleId: dragItem.module.id,
+      moduleId: currentDragItem.module.id,
       x: finalX,
       y: finalY,
       rotation: 0,
@@ -268,13 +284,14 @@ export default function MainScreen() {
     };
 
     let newRooms: PlacedRoom[];
-    if (dragItem.type === 'existing') {
+    if (currentDragItem.type === 'existing') {
       newRooms = placedRooms.map((r) => (r.instanceId === newRoom.instanceId ? newRoom : r));
     } else {
       newRooms = [...placedRooms, newRoom];
     }
 
     addToHistory(newRooms);
+    dragItemRef.current = null;
     setDragItem(null);
     setDragPosition(null);
   }, [dragItem, canvasLayout, pan, scale, placedRooms]);
@@ -347,7 +364,7 @@ export default function MainScreen() {
           scale={scale}
           pan={pan}
           onScaleChange={setScale}
-          onPanChange={setPan}
+          onPanChange={handlePanChange}
           dragItem={dragItem}
           dragPosition={dragPosition}
           canvasLayout={canvasLayout}

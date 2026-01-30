@@ -83,6 +83,8 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
     const isDraggingRoom = useSharedValue(false);
     const roomDragStartTime = useSharedValue(0);
     const roomDragStartPos = useSharedValue({ x: 0, y: 0 });
+    // 标记本次触摸是否落在房间上，用于画布 tap 不误清选中
+    const touchStartedOnRoom = useSharedValue(false);
 
     // props 变化时同步到共享值
     React.useEffect(() => {
@@ -91,19 +93,55 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
       panY.value = pan.y;
     }, [scale, pan.x, pan.y]);
 
-    // 平移手势（拖动画布）
-    // 只有在没有拖拽房间时才启用画布平移
-    const panGesture = Gesture.Pan()
-      .enabled(!dragItem)
+    // 监听选中状态变化，打印每个房间的 isSelected
+    React.useEffect(() => {
+      console.log('[Canvas] selectedRoomId 变化:', selectedRoomId);
+      placedRooms.forEach((room) => {
+        const isSelected = selectedRoomId === room.instanceId;
+        console.log(`[Canvas] 房间 ${room.instanceId} (${room.moduleId}) isSelected:`, isSelected);
+      });
+    }, [selectedRoomId, placedRooms]);
+
+    // 画布平移手势（拖动画布）
+    // 使用 manualActivation 和条件判断，确保只在触摸空白处时激活
+    const canvasPanGesture = Gesture.Pan()
+      .manualActivation(true)
+      .onTouchesDown((event, state) => {
+        'worklet';
+        // 如果触摸落在房间上，不激活画布平移
+        if (touchStartedOnRoom.value) {
+          console.log('[Canvas] 画布平移 onTouchesDown: touchStartedOnRoom----------------:', touchStartedOnRoom.value);
+          state.fail();
+          return;
+        }
+        // 如果正在拖动房间，不激活画布平移
+        if (isDraggingRoom.value) {
+          console.log('[Canvas] 画布平移 onTouchesDown: isDraggingRoom----------------:', isDraggingRoom.value);
+          state.fail();
+          return;
+        }
+        // 触摸在空白处，激活画布平移
+        state.activate();
+      })
+      .onTouchesMove((event, state) => {
+        'worklet';
+        // 如果触摸落在房间上或正在拖动房间，保持失败状态
+        if (touchStartedOnRoom.value || isDraggingRoom.value) {
+          state.fail();
+          return;
+        }
+        state.activate();
+      })
       .onStart(() => {
         'worklet';
+        console.log('[Canvas] 画布平移开始');
         savedPanX.value = panX.value;
         savedPanY.value = panY.value;
       })
       .onUpdate((event) => {
         'worklet';
-        // 如果正在拖动房间，不更新画布位置
-        if (isDraggingRoom.value) {
+        // 双重检查：如果正在拖动房间，不更新画布位置
+        if (isDraggingRoom.value || touchStartedOnRoom.value) {
           return;
         }
         panX.value = savedPanX.value + event.translationX;
@@ -111,17 +149,28 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
       })
       .onEnd(() => {
         'worklet';
-        if (!isDraggingRoom.value) {
+        if (!isDraggingRoom.value && !touchStartedOnRoom.value) {
+          console.log('[Canvas] 画布平移结束');
           runOnJS(onPanChange)({ x: panX.value, y: panY.value });
         }
       });
 
-    // 点击画布空白处的手势（用于清除选中）
-    const tapGesture = Gesture.Tap()
+    // 画布点击手势（点击空白处清除选中）
+    const canvasTapGesture = Gesture.Tap()
+      .onTouchesDown(() => {
+        'worklet';
+        // 如果触摸落在房间上，标记但不阻止（Tap 手势不支持 manualActivation）
+        // 在 onEnd 中会检查 touchStartedOnRoom
+      })
       .onEnd(() => {
         'worklet';
-        // 点击画布空白处，清除选中
-        runOnJS(onCanvasPress)();
+        // 只有触摸未落在房间上时才清除选中
+        if (!touchStartedOnRoom.value) {
+          console.log('[Canvas] 画布点击：清除选中');
+          isDraggingRoom.value = false;
+          runOnJS(onCanvasPress)();
+        }
+        touchStartedOnRoom.value = false;
       });
 
     // 双指缩放手势
@@ -140,7 +189,12 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
         runOnJS(onScaleChange)(scaleValue.value);
       });
 
-    const composed = Gesture.Simultaneous(panGesture, pinchGesture, tapGesture);
+    // 组合画布手势：平移、缩放、点击
+    const canvasGestures = Gesture.Simultaneous(
+      canvasPanGesture,
+      pinchGesture,
+      canvasTapGesture,
+    );
 
     // 画布整体 transform
     const animatedStyle = useAnimatedStyle(() => ({
@@ -286,34 +340,85 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
         // 检查房间是否已选中
         const isSelected = selectedRoomId === room.instanceId;
 
-        // 为每个房间创建独立的手势处理器
-        // 使用 Tap 手势处理点击选中，Pan 手势处理拖动
-        // Tap 手势：最大持续时间 200ms，最大移动距离 10px（超过这个距离就不算点击）
-        // 如果房间已选中，不触发 Tap（避免点击已选中的房间时取消选中）
+        // 房间点击手势（点击图片选中）
         const roomTapGesture = Gesture.Tap()
           .maxDuration(200)
           .maxDistance(10)
           .enabled(!isSelected) // 已选中的房间不触发 Tap
+          .onTouchesDown(() => {
+            'worklet';
+            // 标记触摸落在房间上，阻止画布手势激活
+            touchStartedOnRoom.value = true;
+          })
           .onEnd(() => {
             'worklet';
+            console.log('[Room] 房间点击：选中房间', room.instanceId);
             // 点击房间，选中它（只有在没有拖动的情况下才触发）
             if (!isDraggingRoom.value) {
               runOnJS(onRoomSelect)(room.instanceId);
             }
+            touchStartedOnRoom.value = false;
           });
 
+        // 房间拖动手势（拖动图片）
         const roomPanGesture = Gesture.Pan()
-          .onStart((event) => {
+          .manualActivation(true)
+          .onTouchesDown((event, state) => {
             'worklet';
-            // 记录触摸开始时间和位置
+            console.log('[Room] 房间拖动手势 onTouchesDown，isSelected:', isSelected);
+            // 标记触摸落在房间上，阻止画布手势激活
+            touchStartedOnRoom.value = true;
             roomDragStartTime.value = Date.now();
-            roomDragStartPos.value = { x: event.x, y: event.y };
+            roomDragStartPos.value = { x: event.allTouches[0].x, y: event.allTouches[0].y };
             isDraggingRoom.value = false;
             
-            // 如果房间已选中，立即开始拖动准备（降低阈值）
+            // 已选中时立即标记为拖动并激活，可以直接拖动
             if (isSelected) {
-              console.log('roomTouchOverlays: isSelected', isSelected);
               isDraggingRoom.value = true;
+              state.activate();
+            } else {
+              // 未选中时先激活，等待移动距离判断
+              state.activate();
+            }
+          })
+          .onTouchesMove((event, state) => {
+            'worklet';
+            // 如果已经在拖动，保持激活
+            if (isDraggingRoom.value) {
+              state.activate();
+              return;
+            }
+
+            // 如果房间已选中，立即激活（可以直接拖动）
+            if (isSelected) {
+              state.activate();
+              return;
+            }
+
+            // 计算移动距离
+            const touch = event.allTouches[0];
+            const deltaX = Math.abs(touch.x - roomDragStartPos.value.x);
+            const deltaY = Math.abs(touch.y - roomDragStartPos.value.y);
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            // 拖动阈值：已选中的房间阈值更低（3px），未选中的房间需要 8px
+            const DRAG_THRESHOLD = isSelected ? 3 : 8;
+
+            if (distance > DRAG_THRESHOLD) {
+              // 移动距离超过阈值，激活拖动
+              state.activate();
+            } else {
+              // 移动距离小，不激活房间拖动手势，让 Tap 手势处理（点击选中）
+              state.fail();
+            }
+          })
+          .onStart((event) => {
+            'worklet';
+            console.log('[Room] 房间拖动开始，isDraggingRoom:', isDraggingRoom.value);
+            roomDragStartTime.value = Date.now();
+            roomDragStartPos.value = { x: event.x, y: event.y };
+            // 已选中时 isDraggingRoom 已在 onTouchesDown 设为 true，这里直接发起拖动
+            if (isDraggingRoom.value) {
               const screenX = event.absoluteX || event.x + canvasLayout.x;
               const screenY = event.absoluteY || event.y + canvasLayout.y;
               runOnJS(onRoomDragStart)(room, module, screenX, screenY);
@@ -323,7 +428,6 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             'worklet';
             // 如果已经在拖动，更新拖动位置
             if (isDraggingRoom.value) {
-              console.log('roomTouchOverlays: isDraggingRoom', isDraggingRoom.value);
               const screenX = event.absoluteX || event.x + canvasLayout.x;
               const screenY = event.absoluteY || event.y + canvasLayout.y;
               if (onRoomDragMove) {
@@ -356,58 +460,17 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             'worklet';
             // 如果正在拖动这个房间，结束拖动
             if (isDraggingRoom.value) {
+              console.log('[Room] 房间拖动结束');
               isDraggingRoom.value = false;
+              touchStartedOnRoom.value = false; // 重置标记
               const screenX = event.absoluteX || event.x + canvasLayout.x;
               const screenY = event.absoluteY || event.y + canvasLayout.y;
               if (onRoomDragEnd) {
                 runOnJS(onRoomDragEnd)(screenX, screenY);
               }
-            }
-          })
-          .manualActivation(true)
-          .onTouchesDown((event, state) => {
-            'worklet';
-            // 记录触摸开始位置
-            roomDragStartTime.value = Date.now();
-            roomDragStartPos.value = { x: event.allTouches[0].x, y: event.allTouches[0].y };
-            isDraggingRoom.value = false;
-            
-            // 如果房间已选中，立即激活手势（可以直接拖动）
-            if (isSelected) {
-              state.activate();
             } else {
-              // 未选中的房间，先激活，等待移动判断
-              state.activate();
-            }
-          })
-          .onTouchesMove((event, state) => {
-            'worklet';
-            // 如果已经在拖动，保持激活
-            if (isDraggingRoom.value) {
-              state.activate();
-              return;
-            }
-
-            // 如果房间已选中，立即激活（可以直接拖动）
-            if (isSelected) {
-              state.activate();
-              return;
-            }
-
-            // 计算移动距离
-            const touch = event.allTouches[0];
-            const deltaX = Math.abs(touch.x - roomDragStartPos.value.x);
-            const deltaY = Math.abs(touch.y - roomDragStartPos.value.y);
-            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            // 拖动阈值：已选中的房间阈值更低（3px），未选中的房间需要 8px
-            const DRAG_THRESHOLD = isSelected ? 3 : 8;
-
-            if (distance > DRAG_THRESHOLD) {
-              state.activate();
-            } else {
-              // 移动距离小，不激活房间拖动手势，让 Tap 手势处理（点击选中）
-              state.fail();
+              // 如果没有拖动，重置标记
+              touchStartedOnRoom.value = false;
             }
           });
 
@@ -439,22 +502,26 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
       });
     }, [placedRooms, dragItem, moduleMap, selectedRoomId, onRoomSelect, onRoomDragStart, onRoomDragMove, onRoomDragEnd, canvasLayout]);
 
+    // 将画布平移/缩放/点击与房间覆盖层包在同一 GestureDetector 内，
+    // 这样触摸空白处时命中画布子节点，平移手势能正确触发
     return (
       <View style={styles.container} ref={canvasRef}>
-        <GestureDetector gesture={composed}>
-          <Animated.View style={[styles.canvas, animatedStyle]}>
-            <Svg width={SCREEN_WIDTH * 2} height={SCREEN_HEIGHT * 2}>
-              {renderGrid()}
-              {renderedRooms}
-              {renderedDragGhost}
-            </Svg>
-          </Animated.View>
-        </GestureDetector>
+        <GestureDetector gesture={canvasGestures}>
+          <View style={StyleSheet.absoluteFill}>
+            <Animated.View style={[styles.canvas, animatedStyle]} pointerEvents="box-none">
+              <Svg width={SCREEN_WIDTH * 2} height={SCREEN_HEIGHT * 2}>
+                {renderGrid()}
+                {renderedRooms}
+                {renderedDragGhost}
+              </Svg>
+            </Animated.View>
 
-        {/* 房间手势覆盖层 */}
-        <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]} pointerEvents="box-none">
-          {roomTouchOverlays}
-        </Animated.View>
+            {/* 房间手势覆盖层：仅房间区域可点，空白处触摸会落到下方画布从而触发平移 */}
+            <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]} pointerEvents="box-none">
+              {roomTouchOverlays}
+            </Animated.View>
+          </View>
+        </GestureDetector>
       </View>
     );
   },
