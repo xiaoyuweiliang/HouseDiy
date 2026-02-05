@@ -69,6 +69,8 @@ export default function MainScreen() {
   const [canvasLayout, setCanvasLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   // 拖拽会话 ref：onRoomDragStart 与 onRoomDragMove 几乎同时触发，state 未刷新时用 ref 保证首帧就跟手
   const dragItemRef = useRef<DragItem | null>(null);
+  // 新建画布/清空后：等待拿到 canvasLayout 再把点阵中心(世界 0,0)对齐到视图中心
+  const shouldCenterNewCanvasRef = useRef(true);
 
   // 初次加载时恢复草稿
   useEffect(() => {
@@ -78,6 +80,8 @@ export default function MainScreen() {
         if (draft && draft.length > 0) {
           setHistory([draft]);
           setHistoryIndex(0);
+          // 有内容的草稿不强制改视图
+          shouldCenterNewCanvasRef.current = false;
         }
       } catch (error) {
         console.error('Error loading draft:', error);
@@ -85,6 +89,17 @@ export default function MainScreen() {
     };
     loadDraft();
   }, []);
+
+  // 新画布：让点阵中心(0,0)位于视图中心
+  useEffect(() => {
+    if (!shouldCenterNewCanvasRef.current) return;
+    if (placedRooms.length !== 0) return;
+    if (!Number.isFinite(canvasLayout.width) || !Number.isFinite(canvasLayout.height)) return;
+    if (canvasLayout.width <= 0 || canvasLayout.height <= 0) return;
+
+    setPan({ x: canvasLayout.width / 2, y: canvasLayout.height / 2 });
+    shouldCenterNewCanvasRef.current = false;
+  }, [canvasLayout.width, canvasLayout.height, placedRooms.length]);
 
   // 画布内容变动时自动保存草稿（稍作 debounce）
   useEffect(() => {
@@ -130,7 +145,14 @@ export default function MainScreen() {
 
   const handleResetView = () => {
     setScale(1);
-    setPan({ x: 0, y: 0 });
+    // 重置时也回到“点阵中心在视图中心”的默认视图
+    shouldCenterNewCanvasRef.current = true;
+    if (canvasLayout.width > 0 && canvasLayout.height > 0) {
+      setPan({ x: canvasLayout.width / 2, y: canvasLayout.height / 2 });
+      shouldCenterNewCanvasRef.current = false;
+    } else {
+      setPan({ x: 0, y: 0 });
+    }
   };
 
   const handlePanChange = useCallback((newPan: { x: number; y: number }) => {
@@ -153,7 +175,14 @@ export default function MainScreen() {
       setHistory([[]]);
       setHistoryIndex(0);
       setScale(1);
-      setPan({ x: 0, y: 0 });
+      // 新建画布：等待拿到布局后居中点阵
+      shouldCenterNewCanvasRef.current = true;
+      if (canvasLayout.width > 0 && canvasLayout.height > 0) {
+        setPan({ x: canvasLayout.width / 2, y: canvasLayout.height / 2 });
+        shouldCenterNewCanvasRef.current = false;
+      } else {
+        setPan({ x: 0, y: 0 });
+      }
     } catch (error) {
       console.error('Error creating new plan:', error);
     }

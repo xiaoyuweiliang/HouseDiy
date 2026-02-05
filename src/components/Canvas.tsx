@@ -5,7 +5,7 @@
  */
 
 import React, { useRef, useMemo } from 'react';
-import { View, StyleSheet, Dimensions } from 'react-native';
+import { View, StyleSheet, Dimensions, Image } from 'react-native';
 import Svg, { G, Rect, Image as SvgImage, Circle, Defs, Pattern } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -17,6 +17,9 @@ import { RoomModule, PlacedRoom, GRID_SIZE } from '@/types';
 import { ICONS } from '@/components/icons';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+// 点阵背景范围（半径），用于让背景在平移/缩放时覆盖足够大区域
+const GRID_BG_HALF = 4096;
+const GRID_BG_SIZE = GRID_BG_HALF;
 
 interface CanvasProps {
   placedRooms: PlacedRoom[];
@@ -199,15 +202,17 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
     // 画布整体 transform
     const animatedStyle = useAnimatedStyle(() => ({
       transform: [
+        // 注意顺序：先 scale 再 translate，使坐标换算可用 world = (canvas - pan) / scale
+        // 且平移不随缩放被额外放大，保证缩放后拖拽仍能“触点即所见”
+        { scale: scaleValue.value },
         { translateX: panX.value },
         { translateY: panY.value },
-        { scale: scaleValue.value },
       ],
     }));
 
-    // 渲染点阵网格
-    const renderGrid = () => {
-      const gridPattern = (
+    // 渲染点阵网格：Defs 必须在 <Svg> 直接子节点里，几何体在 worldGroup 里
+    const renderGridDefs = () => (
+      <Defs>
         <Pattern
           id="grid"
           x="0"
@@ -218,15 +223,8 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
         >
           <Circle cx={GRID_SIZE / 2} cy={GRID_SIZE / 2} r="1.5" fill="#D1D1D6" />
         </Pattern>
-      );
-
-      return (
-        <>
-          <Defs>{gridPattern}</Defs>
-          <Rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid)" />
-        </>
-      );
-    };
+      </Defs>
+    );
 
     // 已放置房间渲染
     const renderedRooms = useMemo(() => {
@@ -282,48 +280,69 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
       });
     }, [placedRooms, dragItem, moduleMap, selectedRoomId, onRoomSelect, onRoomDragStart, onRoomDragMove, onRoomDragEnd, canvasLayout]);
 
-    // 拖拽中的幽灵图像
-    const renderedDragGhost = useMemo(() => {
+    // 拖拽中的幽灵图像（屏幕坐标覆盖层）
+    // 直接用触点位置 + offset*scale 计算 left/top，避免缩放/平移后 SVG 世界坐标换算误差
+    const dragGhostOverlay = useMemo(() => {
       if (!dragItem || !dragPosition) return null;
 
-      const lx = Number(canvasLayout.x);
-      const ly = Number(canvasLayout.y);
-      const px = Number(pan.x);
-      const py = Number(pan.y);
-      const s = Number(scale);
       const dx = Number(dragPosition.x);
       const dy = Number(dragPosition.y);
+      const lx = Number(canvasLayout.x);
+      const ly = Number(canvasLayout.y);
+      const s = Number(scale);
       const ox = Number(dragItem.offsetX);
       const oy = Number(dragItem.offsetY);
       const mw = Number(dragItem.module.width);
       const mh = Number(dragItem.module.height);
 
-      if (!Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(s) || s === 0 || !Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(mw) || !Number.isFinite(mh) || mw <= 0 || mh <= 0) {
+      const image = dragItem.module.image;
+      const hasImage = image != null && (typeof image === 'string' || typeof image === 'number');
+
+      if (
+        !hasImage ||
+        !Number.isFinite(dx) ||
+        !Number.isFinite(dy) ||
+        !Number.isFinite(lx) ||
+        !Number.isFinite(ly) ||
+        !Number.isFinite(s) ||
+        s === 0 ||
+        !Number.isFinite(ox) ||
+        !Number.isFinite(oy) ||
+        !Number.isFinite(mw) ||
+        !Number.isFinite(mh) ||
+        mw <= 0 ||
+        mh <= 0
+      ) {
         return null;
       }
 
-      const canvasX = dx - (Number.isFinite(lx) ? lx : 0);
-      const canvasY = dy - (Number.isFinite(ly) ? ly : 0);
-      const worldX = (canvasX - (Number.isFinite(px) ? px : 0)) / s;
-      const worldY = (canvasY - (Number.isFinite(py) ? py : 0)) / s;
-      const finalX = worldX - ox;
-      const finalY = worldY - oy;
+      const localX = dx - lx;
+      const localY = dy - ly;
 
-      if (!Number.isFinite(finalX) || !Number.isFinite(finalY)) {
-        return null;
-      }
+      const width = mw * s;
+      const height = mh * s;
+      const left = localX - ox * s;
+      const top = localY - oy * s;
+
+      const source = typeof image === 'string' ? { uri: image } : image;
 
       return (
-        <G transform={`translate(${finalX}, ${finalY})`} opacity={0.7}>
-          <SvgImage
-            href={dragItem.module.image}
-            width={mw}
-            height={mh}
-            preserveAspectRatio="xMidYMid slice"
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <Image
+            source={source as any}
+            style={{
+              position: 'absolute',
+              left,
+              top,
+              width,
+              height,
+              opacity: 0.7,
+            }}
+            resizeMode="cover"
           />
-        </G>
+        </View>
       );
-    }, [dragItem, dragPosition, canvasLayout, pan, scale]);
+    }, [canvasLayout.x, canvasLayout.y, dragItem, dragPosition, scale]);
 
     // 为每个房间创建独立的手势处理器
     // 逻辑：短按选中，移动超过阈值时拖动房间，快速滑动时滑动画布
@@ -419,8 +438,11 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             roomDragStartPos.value = { x: event.x, y: event.y };
             // 已选中时 isDraggingRoom 已在 onTouchesDown 设为 true，这里直接发起拖动
             if (isDraggingRoom.value) {
-              const screenX = event.absoluteX || event.x + canvasLayout.x;
-              const screenY = event.absoluteY || event.y + canvasLayout.y;
+              // 缩放时 event.x/y 可能是变换后的局部坐标，易造成拖拽偏移；优先使用屏幕坐标
+              const ax = event.absoluteX;
+              const ay = event.absoluteY;
+              const screenX = Number.isFinite(ax) ? ax : event.x + canvasLayout.x;
+              const screenY = Number.isFinite(ay) ? ay : event.y + canvasLayout.y;
               runOnJS(onRoomDragStart)(room, module, screenX, screenY);
             }
           })
@@ -428,8 +450,10 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             'worklet';
             // 如果已经在拖动，更新拖动位置
             if (isDraggingRoom.value) {
-              const screenX = event.absoluteX || event.x + canvasLayout.x;
-              const screenY = event.absoluteY || event.y + canvasLayout.y;
+              const ax = event.absoluteX;
+              const ay = event.absoluteY;
+              const screenX = Number.isFinite(ax) ? ax : event.x + canvasLayout.x;
+              const screenY = Number.isFinite(ay) ? ay : event.y + canvasLayout.y;
               if (onRoomDragMove) {
                 runOnJS(onRoomDragMove)(screenX, screenY);
               }
@@ -447,8 +471,10 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             if (distance > DRAG_THRESHOLD) {
               // 触发拖动房间
               isDraggingRoom.value = true;
-              const screenX = event.absoluteX || event.x + canvasLayout.x;
-              const screenY = event.absoluteY || event.y + canvasLayout.y;
+              const ax = event.absoluteX;
+              const ay = event.absoluteY;
+              const screenX = Number.isFinite(ax) ? ax : event.x + canvasLayout.x;
+              const screenY = Number.isFinite(ay) ? ay : event.y + canvasLayout.y;
               runOnJS(onRoomDragStart)(room, module, screenX, screenY);
               
               if (onRoomDragMove) {
@@ -463,8 +489,10 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
               console.log('[Room] 房间拖动结束');
               isDraggingRoom.value = false;
               touchStartedOnRoom.value = false; // 重置标记
-              const screenX = event.absoluteX || event.x + canvasLayout.x;
-              const screenY = event.absoluteY || event.y + canvasLayout.y;
+              const ax = event.absoluteX;
+              const ay = event.absoluteY;
+              const screenX = Number.isFinite(ax) ? ax : event.x + canvasLayout.x;
+              const screenY = Number.isFinite(ay) ? ay : event.y + canvasLayout.y;
               if (onRoomDragEnd) {
                 runOnJS(onRoomDragEnd)(screenX, screenY);
               }
@@ -489,8 +517,9 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
             <Animated.View
               style={{
                 position: 'absolute',
-                left: styleLeft,
-                top: styleTop,
+                // world 坐标系原点在网格中心，需要整体平移到 SVG 中心
+                left: styleLeft + GRID_BG_HALF,
+                top: styleTop + GRID_BG_HALF,
                 width: styleW,
                 height: styleH,
                 backgroundColor: 'transparent',
@@ -509,12 +538,23 @@ export const Canvas: React.FC<CanvasProps> = React.memo(
         <GestureDetector gesture={canvasGestures}>
           <View style={StyleSheet.absoluteFill}>
             <Animated.View style={[styles.canvas, animatedStyle]} pointerEvents="box-none">
-              <Svg width={SCREEN_WIDTH * 2} height={SCREEN_HEIGHT * 2}>
-                {renderGrid()}
-                {renderedRooms}
-                {renderedDragGhost}
+              <Svg width={GRID_BG_SIZE} height={GRID_BG_SIZE}>
+                {renderGridDefs()}
+                {/* world 坐标系 (0,0) 放在 SVG 视口中心 */}
+                <G transform={`translate(${GRID_BG_HALF}, ${GRID_BG_HALF})`}>
+                  <Rect
+                    x={-GRID_BG_HALF}
+                    y={-GRID_BG_HALF}
+                    width={GRID_BG_SIZE}
+                    height={GRID_BG_SIZE}
+                    fill="url(#grid)"
+                  />
+                  {renderedRooms}
+                </G>
               </Svg>
             </Animated.View>
+
+            {dragGhostOverlay}
 
             {/* 房间手势覆盖层：仅房间区域可点，空白处触摸会落到下方画布从而触发平移 */}
             <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]} pointerEvents="box-none">
