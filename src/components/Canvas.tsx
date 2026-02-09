@@ -15,11 +15,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { RoomModule, PlacedRoom, GRID_SIZE } from '@/types';
 import { ICONS } from '@/components/icons';
+import { WORLD_SIZE } from '@/config/canvas';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // 点阵背景范围（半径），用于让背景在平移/缩放时覆盖足够大区域
-const GRID_BG_HALF = 4096;
-const GRID_BG_SIZE = GRID_BG_HALF;
+// 与 WORLD_SIZE 保持一致：世界坐标范围为 [-WORLD_HALF, WORLD_HALF]
+const GRID_BG_SIZE = WORLD_SIZE;
+const GRID_BG_HALF = WORLD_SIZE / 2;
 
 interface CanvasProps {
   placedRooms: PlacedRoom[];

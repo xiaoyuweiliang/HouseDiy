@@ -21,8 +21,10 @@ import { ROOM_MODULES } from '@/data/material_library';
 import { saveActiveDraft, loadActiveDraft, saveDesign } from '@/services/storageService';
 import { calculateGridSnap, calculateMagneticSnap } from '@/utils/snappingUtils';
 import { ICONS } from '@/components/icons';
+import { WORLD_SIZE } from '@/config/canvas';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const WORLD_HALF = WORLD_SIZE / 2;
 
 // 房间分类配置（使用本项目本地 PNG 图标）
 const CATEGORIES = [
@@ -90,14 +92,21 @@ export default function MainScreen() {
     loadDraft();
   }, []);
 
-  // 新画布：让点阵中心(0,0)位于视图中心
+  // 新画布：让世界坐标原点(0,0)位于视图中心
   useEffect(() => {
     if (!shouldCenterNewCanvasRef.current) return;
     if (placedRooms.length !== 0) return;
     if (!Number.isFinite(canvasLayout.width) || !Number.isFinite(canvasLayout.height)) return;
     if (canvasLayout.width <= 0 || canvasLayout.height <= 0) return;
 
-    setPan({ x: canvasLayout.width / 2, y: canvasLayout.height / 2 });
+    // 画布坐标与世界坐标关系：
+    // worldX = (canvasX - pan.x) / scale - WORLD_HALF
+    // 期望：当 canvasX 在视图中心（canvasLayout.width / 2）时，worldX = 0
+    // 解得：pan.x = canvasLayout.width / 2 - WORLD_HALF（Y 方向同理）
+    setPan({
+      x: canvasLayout.width / 2 - WORLD_HALF,
+      y: canvasLayout.height / 2 - WORLD_HALF,
+    });
     shouldCenterNewCanvasRef.current = false;
   }, [canvasLayout.width, canvasLayout.height, placedRooms.length]);
 
@@ -145,10 +154,13 @@ export default function MainScreen() {
 
   const handleResetView = () => {
     setScale(1);
-    // 重置时也回到“点阵中心在视图中心”的默认视图
+    // 重置时也回到“世界原点(0,0)在视图中心”的默认视图
     shouldCenterNewCanvasRef.current = true;
     if (canvasLayout.width > 0 && canvasLayout.height > 0) {
-      setPan({ x: canvasLayout.width / 2, y: canvasLayout.height / 2 });
+      setPan({
+        x: canvasLayout.width / 2 - WORLD_HALF,
+        y: canvasLayout.height / 2 - WORLD_HALF,
+      });
       shouldCenterNewCanvasRef.current = false;
     } else {
       setPan({ x: 0, y: 0 });
@@ -175,10 +187,13 @@ export default function MainScreen() {
       setHistory([[]]);
       setHistoryIndex(0);
       setScale(1);
-      // 新建画布：等待拿到布局后居中点阵
+      // 新建画布：等待拿到布局后居中世界原点
       shouldCenterNewCanvasRef.current = true;
       if (canvasLayout.width > 0 && canvasLayout.height > 0) {
-        setPan({ x: canvasLayout.width / 2, y: canvasLayout.height / 2 });
+        setPan({
+          x: canvasLayout.width / 2 - WORLD_HALF,
+          y: canvasLayout.height / 2 - WORLD_HALF,
+        });
         shouldCenterNewCanvasRef.current = false;
       } else {
         setPan({ x: 0, y: 0 });
@@ -232,17 +247,20 @@ export default function MainScreen() {
   // 从画布上的已有房间开始拖拽
   const handleStartDragFromRoom = useCallback(
     (room: PlacedRoom, module: RoomModule, touchX: number, touchY: number) => {
-      const canvasX = touchX - canvasLayout.x;
-      const canvasY = touchY - canvasLayout.y;
-      const worldX = (canvasX - pan.x) / scale;
-      const worldY = (canvasY - pan.y) / scale;
+      // 计算当前房间左上角在屏幕坐标中的位置（与 Canvas 中的变换完全一致）
+      const roomScreenX = canvasLayout.x + scale * (room.x + WORLD_HALF) + pan.x;
+      const roomScreenY = canvasLayout.y + scale * (room.y + WORLD_HALF) + pan.y;
+
+      // 触点相对于房间左上角的偏移（转换到世界坐标系下）
+      const offsetX = (touchX - roomScreenX) / scale;
+      const offsetY = (touchY - roomScreenY) / scale;
 
       const item: DragItem = {
         type: 'existing',
         module,
         instanceId: room.instanceId,
-        offsetX: worldX - room.x,
-        offsetY: worldY - room.y,
+        offsetX,
+        offsetY,
       };
       dragItemRef.current = item;
       setDragItem(item);
@@ -265,35 +283,70 @@ export default function MainScreen() {
     setIsModuleScrollEnabled(true);
     const canvasX = pageX - canvasLayout.x;
     const canvasY = pageY - canvasLayout.y;
-    const worldX = (canvasX - pan.x) / scale;
-    const worldY = (canvasY - pan.y) / scale;
+    // 直接根据「幽灵图」的逻辑反推世界坐标，保证松手时真实房间与拖拽预览完全对齐，
+    // 并且对缩放/平移保持精确：
+    //
+    // Canvas 中房间左上角在画布容器坐标系下的映射为：
+    //   roomLeftCanvas = scale * (WORLD_HALF + room.x) + pan.x
+    //
+    // 幽灵图中 left 的计算为：
+    //   ghostLeft = canvasX - offsetX * scale
+    //
+    // 希望松手时：ghostLeft === roomLeftCanvas
+    // 解得：
+    //   room.x = (canvasX - offsetX * scale - pan.x) / scale - WORLD_HALF
+    const rawX =
+      (canvasX - currentDragItem.offsetX * scale - pan.x) / scale - WORLD_HALF;
+    const rawY =
+      (canvasY - currentDragItem.offsetY * scale - pan.y) / scale - WORLD_HALF;
 
-    const rawX = worldX - currentDragItem.offsetX;
-    const rawY = worldY - currentDragItem.offsetY;
-
-    const stationaryRooms =
-      currentDragItem.type === 'existing'
-        ? placedRooms.filter((r) => r.instanceId !== currentDragItem.instanceId)
-        : placedRooms;
-
-    const magneticSnap = calculateMagneticSnap(
-      { x: rawX, y: rawY },
-      currentDragItem.module,
-      stationaryRooms,
-      ROOM_MODULES,
-    );
+    console.log('[drag] 手指抬起坐标:', {
+      type: currentDragItem.type,
+      screen: { x: pageX, y: pageY },
+      canvas: { x: canvasX, y: canvasY },
+      worldPointUnderFinger: { x: rawX + currentDragItem.offsetX, y: rawY + currentDragItem.offsetY },
+      worldTopLeftRaw: { x: rawX, y: rawY },
+      pan,
+      scale,
+      canvasLayout,
+    });
 
     let finalX: number;
     let finalY: number;
 
-    if (magneticSnap) {
-      finalX = magneticSnap.x;
-      finalY = magneticSnap.y;
+    if (currentDragItem.type === 'new') {
+      // 新放入画布的房间：完全按照手指位置落下，不做任何网格/磁吸偏移，
+      // 确保在任意缩放下都「所见即所得」。
+      finalX = rawX;
+      finalY = rawY;
     } else {
-      const gridSnap = calculateGridSnap({ x: rawX, y: rawY }, currentDragItem.module);
-      finalX = gridSnap.x;
-      finalY = gridSnap.y;
+      // 仅对已存在的房间移动做吸附，保持拼图体验
+      const stationaryRooms = placedRooms.filter(
+        (r) => r.instanceId !== currentDragItem.instanceId,
+      );
+
+      const magneticSnap = calculateMagneticSnap(
+        { x: rawX, y: rawY },
+        currentDragItem.module,
+        stationaryRooms,
+        ROOM_MODULES,
+      );
+
+      if (magneticSnap) {
+        finalX = magneticSnap.x;
+        finalY = magneticSnap.y;
+      } else {
+        const gridSnap = calculateGridSnap({ x: rawX, y: rawY }, currentDragItem.module);
+        finalX = gridSnap.x;
+        finalY = gridSnap.y;
+      }
     }
+
+    console.log('[drag] 房间最终落点(world):', {
+      type: currentDragItem.type,
+      moduleId: currentDragItem.module.id,
+      final: { x: finalX, y: finalY },
+    });
 
     const isBase =
       currentDragItem.type === 'existing'
@@ -702,13 +755,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
   },
   categoryIcon: {
-    width: 18,
-    height: 18,
-    opacity: 0.6,
+    width: 22,
+    height: 22,
   },
   categoryIconActive: {
-    opacity: 1,
-    tintColor: '#FFFFFF',
   },
   categoryLabel: {
     fontSize: 10,
